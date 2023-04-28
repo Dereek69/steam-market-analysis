@@ -22,6 +22,28 @@ def print_full(x):
     pd.reset_option('display.float_format')
 
 def get_steamcharts_history(gameid):
+    #Check if there is a csv file with the gameid name
+    #If there is, load it and return it
+    #If there isn't, make the request, save the data in a csv file and return the data
+
+    filename = f'{gameid}.csv'
+    try:
+        df = pd.read_csv(filename)
+        return df
+    except:
+        pass
+
+    data = get_steamcharts_history_raw(gameid)
+    if len(data) == 0:
+        #return an empty dataframe
+        return pd.DataFrame()
+    df = pd.DataFrame(data, columns=['timestamp', gameid])
+    df = df.set_index('timestamp')
+    df.to_csv(filename, index=True)
+    return df
+
+def get_steamcharts_history_raw(gameid):
+
     url = f'https://steamcharts.com/app/{gameid}/chart-data.json'
     print(url)
     headers = {
@@ -52,14 +74,12 @@ def get_steamcharts_history(gameid):
     # The second element of each list is the number of players
     if response.status_code != 200:
         print(response.status_code)
-        print(response.text)
         return []
     return response.json()
 
+def get_steam_app_list():
 # Get all the games names and corresponding ids from the steam api
 #http://api.steampowered.com/ISteamApps/GetAppList/v0002/
-
-def get_steam_app_list():
     url = 'http://api.steampowered.com/ISteamApps/GetAppList/v0002/'
     response = requests.get(url)
     if response.status_code != 200:
@@ -84,12 +104,14 @@ for gameid in all_games:
     # For the gameid get the game name from the dictionary
     try:
         game_name = game_name_list[gameid]
+
+        # Rename the gameid column in the game_history dataframe to the game name
+        game_history = game_history.rename(columns={gameid: game_name})
+
     except KeyError:
         game_name = gameid
 
-    if game_history:
-        game_history = pd.DataFrame(game_history, columns=['timestamp', game_name])
-        game_history = game_history.set_index('timestamp')
+    if game_history.empty:
         all_games_history = pd.concat([all_games_history, game_history], axis=1)
 
 # Convert the timestamp column to a datetime object from milliseconds
@@ -104,19 +126,12 @@ all_games_history = all_games_history.interpolate(method='linear', axis=0)
 # On the rows where there are no data, but the previous row has data, fill the missing data with the previous value
 #all_games_history = all_games_history.fillna(method='ffill')
 
-# Replace every gameid column with a moving average of the last 5 values
-all_games_history = all_games_history.rolling(5).mean()
+# Replace every gameid column with a moving average of the last 12 values
+all_games_history = all_games_history.rolling(6).mean()
 
 # Convert every valid value to an integer on the columns with the gameid
 for gameid in all_games_history:
     all_games_history[gameid] = all_games_history[gameid].apply(lambda x: int(x) if not pd.isnull(x) else x)
-
-
-for gameid in all_games_history:
-    #get the column with the gameid
-    column = all_games_history[gameid]
-
-    print(f"{gameid} : {column.notna().sum()}")
 
 
 print(all_games_history)
